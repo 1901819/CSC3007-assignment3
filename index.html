@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="" />
+    <title>Singapore Population Distribution</title>
+
+    <!-- Bootstrap CSS -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-0evHe/X+R7YkIZDRvuzKMRqM+OrBnVFBL6DOitfPri4tjfHxaWutUpFmBp4vmVor"
+      crossorigin="anonymous"
+    />
+
+    <!-- Custom CSS -->
+    <style>
+      html body {
+        background-color: #ededed;
+      }
+
+      .container {
+        max-width: 1200px;
+      }
+
+      .header {
+        max-width: 600px;
+      }
+
+      path {
+        stroke: black;
+        stroke-width: 0.5;
+      }
+
+      .selected {
+        stroke: red;
+        stroke-width: 2;
+      }
+
+      div.tooltip {
+        position: absolute;
+        text-align: center;
+        max-width: 150px;
+        max-height: 100px;
+        padding: 2px;
+        background: silver;
+        border: 0px;
+        border-radius: 8px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container py-3">
+      <header>
+        <div class="header p-3 pb-md-4 mx-auto text-center">
+          <h1 class="display-4 fw-normal">Singapore Population Distribution</h1>
+          <p class="fs-5 text-muted">
+            Find out which districts in Singapore has the most people! Hover over each district for more details.
+          </p>
+        </div>
+      </header>
+
+      <main>
+        <svg></svg>
+      </main>
+    </div>
+
+    <!-- Required JS files -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/js/bootstrap.min.js"
+      integrity="sha384-kjU+l4N0Yf4ZOJErLsIcvOU2qSb74wXpOhqTvwVx3OElZRweTnQ6d31fXEoRD1Jy"
+      crossorigin="anonymous"
+    ></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <!-- Main Script -->
+    <script type="text/javascript">
+      let width = 1000,
+        height = 600
+
+      let threshold = [100, 500, 1000, 5000, 10000, 20000, 40000, 60000]
+
+      let svg = d3.select('svg').attr('viewBox', '0 0 ' + width + ' ' + height)
+
+      // Load external data
+      Promise.all([
+        d3.json('sgmap.json'),
+        d3.csv('population2021.csv'),
+      ]).then((data) => {
+        // Color Scaling
+        var colorScale = d3.scaleThreshold(threshold, d3.schemeYlOrRd[9])
+
+        // Mapping both datasets
+        data[0].features.map((feature) => {
+          feature.properties['Subzone Name'] = toTitleCase(feature.properties['Subzone Name'])
+          match = data[1].find((x) => x.Subzone == feature.properties['Subzone Name'])
+          if (match) {
+            feature.properties.Population = match.Population
+          } else {
+            feature.properties.Population = 'No data'
+          }
+        })
+
+        // Map and projection
+        var projection = d3
+          .geoMercator()
+          .center([103.851959, 1.29027])
+          .scale(3000)
+          .fitExtent(
+            [
+              [20, 20],
+              [980, 580],
+            ],
+            data[0]
+          )
+
+        let geopath = d3.geoPath().projection(projection)
+
+        var div = d3.select('body').append('div').attr('class', 'tooltip fs-6').style('opacity', 0)
+
+        svg
+          .append('g')
+          .attr('id', 'districts')
+          .selectAll('path')
+          .data(data[0].features)
+          .enter()
+          .append('path')
+          .attr('d', geopath)
+          .attr('fill', (d) => {
+            return d.properties.Population != '-' && d.properties.Population != 'No data'
+              ? colorScale(d.properties.Population)
+              : 'dimgrey'
+          })
+          .on('mouseover', function (event, d) {
+            d3.select(this).transition().duration('50').attr('fill-opacity', '0.5').attr('class', 'selected')
+
+            div.transition().duration(200).style('opacity', 0.9)
+            div
+              .html('<b>' + d.properties['Subzone Name'] + '</b><br>Population: ' + d.properties.Population)
+              .style('left', event.pageX + 'px')
+              .style('top', event.pageY - 28 + 'px')
+          })
+          .on('mouseout', function (d) {
+            d3.select(this).transition().duration('50').attr('fill-opacity', '1').attr('class', '')
+
+            div.transition().duration(500).style('opacity', 0)
+          })
+
+        // Legend
+        const legend = Legend(colorScale, {
+          title: 'Population',
+        })
+
+        svg
+          .append('g')
+          .attr('transform', 'translate(600, 500)')
+          .append(() => legend)
+
+        function toTitleCase(str) {
+          return str.toLowerCase().replace(/(?:^|[\s-/])\w/g, function (match) {
+            return match.toUpperCase()
+          })
+        }
+      })
+
+      // Legend script
+      // Copyright 2021, Observable Inc.
+      // Released under the ISC license.
+      // https://observablehq.com/@d3/color-legend
+      function Legend(
+        color,
+        {
+          title,
+          tickSize = 6,
+          width = 320,
+          height = 44 + tickSize,
+          marginTop = 18,
+          marginRight = 0,
+          marginBottom = 16 + tickSize,
+          marginLeft = 0,
+          ticks = width / 64,
+          tickFormat,
+          tickValues,
+        } = {}
+      ) {
+        function ramp(color, n = 256) {
+          const canvas = document.createElement('canvas')
+          canvas.width = n
+          canvas.height = 1
+          const context = canvas.getContext('2d')
+          for (let i = 0; i < n; ++i) {
+            context.fillStyle = color(i / (n - 1))
+            context.fillRect(i, 0, 1, 1)
+          }
+          return canvas
+        }
+
+        const svg = d3
+          .create('svg')
+          .attr('width', width)
+          .attr('height', height)
+          .attr('viewBox', [0, 0, width, height])
+          .style('overflow', 'visible')
+          .style('display', 'block')
+
+        let tickAdjust = (g) => g.selectAll('.tick line').attr('y1', marginTop + marginBottom - height)
+        let x
+
+        // Continuous
+        if (color.interpolate) {
+          const n = Math.min(color.domain().length, color.range().length)
+
+          x = color.copy().rangeRound(d3.quantize(d3.interpolate(marginLeft, width - marginRight), n))
+
+          svg
+            .append('image')
+            .attr('x', marginLeft)
+            .attr('y', marginTop)
+            .attr('width', width - marginLeft - marginRight)
+            .attr('height', height - marginTop - marginBottom)
+            .attr('preserveAspectRatio', 'none')
+            .attr('xlink:href', ramp(color.copy().domain(d3.quantize(d3.interpolate(0, 1), n))).toDataURL())
+        }
+
+        // Sequential
+        else if (color.interpolator) {
+          x = Object.assign(color.copy().interpolator(d3.interpolateRound(marginLeft, width - marginRight)), {
+            range() {
+              return [marginLeft, width - marginRight]
+            },
+          })
+
+          svg
+            .append('image')
+            .attr('x', marginLeft)
+            .attr('y', marginTop)
+            .attr('width', width - marginLeft - marginRight)
+            .attr('height', height - marginTop - marginBottom)
+            .attr('preserveAspectRatio', 'none')
+            .attr('xlink:href', ramp(color.interpolator()).toDataURL())
+
+          // scaleSequentialQuantile doesn’t implement ticks or tickFormat.
+          if (!x.ticks) {
+            if (tickValues === undefined) {
+              const n = Math.round(ticks + 1)
+              tickValues = d3.range(n).map((i) => d3.quantile(color.domain(), i / (n - 1)))
+            }
+            if (typeof tickFormat !== 'function') {
+              tickFormat = d3.format(tickFormat === undefined ? ',f' : tickFormat)
+            }
+          }
+        }
+
+        // Threshold
+        else if (color.invertExtent) {
+          const thresholds = color.thresholds
+            ? color.thresholds() // scaleQuantize
+            : color.quantiles
+            ? color.quantiles() // scaleQuantile
+            : color.domain() // scaleThreshold
+
+          const thresholdFormat =
+            tickFormat === undefined ? (d) => d : typeof tickFormat === 'string' ? d3.format(tickFormat) : tickFormat
+
+          x = d3
+            .scaleLinear()
+            .domain([-1, color.range().length - 1])
+            .rangeRound([marginLeft, width - marginRight])
+
+          svg
+            .append('g')
+            .selectAll('rect')
+            .data(color.range())
+            .join('rect')
+            .attr('x', (d, i) => x(i - 1))
+            .attr('y', marginTop)
+            .attr('width', (d, i) => x(i) - x(i - 1))
+            .attr('height', height - marginTop - marginBottom)
+            .attr('fill', (d) => d)
+
+          tickValues = d3.range(thresholds.length)
+          tickFormat = (i) => thresholdFormat(thresholds[i], i)
+        }
+
+        // Ordinal
+        else {
+          x = d3
+            .scaleBand()
+            .domain(color.domain())
+            .rangeRound([marginLeft, width - marginRight])
+
+          svg
+            .append('g')
+            .selectAll('rect')
+            .data(color.domain())
+            .join('rect')
+            .attr('x', x)
+            .attr('y', marginTop)
+            .attr('width', Math.max(0, x.bandwidth() - 1))
+            .attr('height', height - marginTop - marginBottom)
+            .attr('fill', color)
+
+          tickAdjust = () => {}
+        }
+
+        svg
+          .append('g')
+          .attr('transform', `translate(0,${height - marginBottom})`)
+          .call(
+            d3
+              .axisBottom(x)
+              .ticks(ticks, typeof tickFormat === 'string' ? tickFormat : undefined)
+              .tickFormat(typeof tickFormat === 'function' ? tickFormat : undefined)
+              .tickSize(tickSize)
+              .tickValues(tickValues)
+          )
+          .call(tickAdjust)
+          .call((g) => g.select('.domain').remove())
+          .call((g) =>
+            g
+              .append('text')
+              .attr('x', marginLeft)
+              .attr('y', marginTop + marginBottom - height - 6)
+              .attr('fill', 'currentColor')
+              .attr('text-anchor', 'start')
+              .attr('font-weight', 'bold')
+              .attr('class', 'title')
+              .text(title)
+          )
+
+        return svg.node()
+      }
+    </script>
+  </body>
+</html>
